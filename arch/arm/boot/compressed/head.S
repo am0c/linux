@@ -111,23 +111,29 @@
 		bl	memdump		/* dump 256 bytes at start of kernel */
 #endif
 		.endm
-
+    
+/* iamroot : .section은 새로운 section을 정의하는 것이다.
+   #alloc은 allocatable을 의미하고 #execinstr은 executable을 의미한다.
+ */ 
 		.section ".start", #alloc, #execinstr
 /*
  * sort out different calling conventions
  */
-		.align
+		.align      @padding is 0
 		.arm				@ Always enter in ARM state
+
+    /* iamroot : start를 function이라고 지정한다. 
+       GNU assembler directive : http://sources.redhat.com/binutils/docs-2.12/as.info/Pseudo-Ops.html#Pseudo%20Ops
+       mov r0, r0 : http://www.iamroot.org/xe/index.php?mid=QnA&page=7&document_srl=23099 댓글 확인 */
 start:
-		.type	start,#function
+		.type	start,#function               
 		.rept	7
 		mov	r0, r0
 		.endr
    ARM(		mov	r0, r0		)
    ARM(		b	1f		)
- THUMB(		adr	r12, BSYM(1f)	)
+ THUMB(		adr	r12, BSYM(1f)	)           /* iamroot : BSYM = 맨마지막 bit를 1로 바꿔 준다.(arch/arm/include/asm/unified.h) */
  THUMB(		bx	r12		)
-
 		.word	0x016f2818		@ Magic numbers to help the loader
 		.word	start			@ absolute load/run zImage address
 		.word	_edata			@ zImage end address
@@ -142,17 +148,21 @@ start:
 		 * We only do this if we were in user mode on entry.
 		 */
 		mrs	r2, cpsr		@ get current mode
-		tst	r2, #3			@ not user?
-		bne	not_angel
+
+    /* iamroot : tst의 결과가 1이면 zflag가 0된다.) 
+       Angel은 ARM 디버거와 통신하는 타겟에서 돌고 있는 디버깅용 모니터 프로그램이다. */
+    
+		tst	r2, #3			@ not user?       /* iamroot : not user mode */
+		bne	not_angel                     /* iamroot : if ( Z clear? ) goto not_angel. */
 		mov	r0, #0x17		@ angel_SWIreason_EnterSVC
  ARM(		swi	0x123456	)	@ angel_SWI_ARM
  THUMB(		svc	0xab		)	@ angel_SWI_THUMB
 not_angel:
 		mrs	r2, cpsr		@ turn off interrupts to
 		orr	r2, r2, #0xc0		@ prevent angel from running
-		msr	cpsr_c, r2
+		msr	cpsr_c, r2      /* iamroot : _c의 의미는 NZCV condition flags 를 변경하지 않겠다. */
 #else
-		teqp	pc, #0x0c000003		@ turn off interrupts
+		teqp	pc, #0x0c000003		@ turn off interrupts     @teqp = xor
 #endif
 
 		/*
@@ -167,6 +177,11 @@ not_angel:
 
 		.text
 
+    /* iamroot : TEXT_OFFSET의 값은 -> arch/arm/Makefile?
+       ZRELADDR : 압축이 해제된 커널이 놓일 주소이다.
+       r4에는 text의 위치가 입력된다. */
+
+    @  r4 = kernel execution address
 #ifdef CONFIG_AUTO_ZRELADDR
 		@ determine final kernel image address
 		mov	r4, pc
@@ -176,7 +191,7 @@ not_angel:
 		ldr	r4, =zreladdr
 #endif
 
-		bl	cache_on
+		bl	cache_on      /* iamroot : lr을 저장하고 branch하라. */
 
 restart:	adr	r0, LC0
 		ldmia	r0, {r1, r2, r3, r6, r10, r11, r12}
@@ -393,7 +408,7 @@ params:		ldr	r0, =0x10000100		@ params_phys for RPC
  * This routine must preserve:
  *  r4, r7, r8
  */
-		.align	5
+		.align	5       @why 5?
 cache_on:	mov	r3, #8			@ cache_on function
 		b	call_cache_fn
 
@@ -531,8 +546,14 @@ __armv4_mmu_cache_on:
 __armv7_mmu_cache_on:
 		mov	r12, lr
 #ifdef CONFIG_MMU
-		mrc	p15, 0, r11, c0, c1, 4	@ read ID_MMFR0
-		tst	r11, #0xf		@ VMSA
+
+    /*iamroot mrc	p15, 0, r11, c0, c1, 4
+      c0:major(CRn), c1:minor(CRm), op1=0, op2=4
+      ddi0388g_cortex_a9_r3p0_trm.pdf에서 일단 c0으로 4.2.1장 c0 register를 찾으며 
+      나머지 op1, c1, op2를 이용하여 Memory Model Feature Register0이라는 것을 알 수 있다. */
+
+		mrc	p15, 0, r11, c0, c1, 4	@ read ID_MMFR0   @iamroot:Memory Model Feature Register0
+		tst	r11, #0xf		@ VMSA                      @iamroot:Virtual Memory System Archiecture
 		blne	__setup_mmu
 		mov	r0, #0
 		mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
@@ -615,6 +636,10 @@ __common_mmu_cache_on:
  */
 
 call_cache_fn:	adr	r12, proc_types
+
+/* iamroot : 같은 processor ID를 loop를 돌아 찾는다. new CPU ID라고 아래에 선언되어 있다.
+   __armv7_mmu_cache_on, __armv7_mmu_cache_off, __armv7_mmu_cache_flush */
+
 #ifdef CONFIG_CPU_CP15
 		mrc	p15, 0, r9, c0, c0	@ get processor ID
 #else
@@ -626,10 +651,9 @@ call_cache_fn:	adr	r12, proc_types
 		tst	r1, r2			@       & mask
  ARM(		addeq	pc, r12, r3		) @ call cache function
  THUMB(		addeq	r12, r3			)
- THUMB(		moveq	pc, r12			) @ call cache function
-		add	r12, r12, #PROC_ENTRY_SIZE
+ THUMB(		moveq	pc, r12			) @ cal cache function
+		add	r12, r12, #PROC_ENTRY_SIZE                         @20
 		b	1b
-
 /*
  * Table for cache operations.  This is basically:
  *   - CPU ID match
@@ -649,7 +673,8 @@ call_cache_fn:	adr	r12, proc_types
 proc_types:
 		.word	0x41560600		@ ARM6/610
 		.word	0xffffffe0
-		W(b)	__arm6_mmu_cache_off	@ works, but slow
+
+		W(b)	__arm6_mmu_cache_off	@ works, but slow       @ W(b) : __로시작하는 게 정의 되어 있으면 branch한다.
 		W(b)	__arm6_mmu_cache_off
 		mov	pc, lr
  THUMB(		nop				)
