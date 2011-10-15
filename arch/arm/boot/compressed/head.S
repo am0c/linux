@@ -17,10 +17,13 @@
  * 100% relocatable.  Any attempt to do so will result in a crash.
  * Please select one of the following when turning on debugging.
  */
+@ 디버깅용 코드는 100% 재배치하게 해야하며, 그렇지 않으면 망가짐.
 #ifdef DEBUG
 
 #if defined(CONFIG_DEBUG_ICEDCC)
 
+@ loadsp - 아무 것 하지 않음.
+@ writeb (ch, rb) - DBGDTRTXint - 타겟에서 호스트로 기록
 #if defined(CONFIG_CPU_V6) || defined(CONFIG_CPU_V6K) || defined(CONFIG_CPU_V7)
 		.macro	loadsp, rb, tmp
 		.endm
@@ -41,10 +44,21 @@
 		.endm
 #endif
 
+
 #else
 
 #include <mach/debug-macro.S>
 
+@ 디버그 모드가 아니면 debug-macro.S의 senduart로 writeb를 구현한다.
+@ 우리가 봐야할 mach-exynos4/include/mach/debug-macro.S에는
+@ senduart의 구현이 없다. 해당 내용은 plat-samsung/include/plat에
+@ 위치한다.
+@ 삼성은 장기적으로 하나의 플랫폼 디렉터리(plat-samsung)과 개별 칩을 다루는
+@ 머신(mach-)로 분류한다.
+@ see also: http://comments.gmane.org/gmane.linux.kernel.samsung-soc/7143
+
+@ writeb (ch, rb) - strb ch, [rb, #S3C2410_UTXH]로 호출
+@ #S3C2410_UTXH는 0x20 - 동 디렉토리의 regs-serial.h
 		.macro	writeb,	ch, rb
 		senduart \ch, \rb
 		.endm
@@ -64,6 +78,12 @@
 		add	\rb, \rb, #0x4000 * CONFIG_S3C_LOWLEVEL_UART_PORT
 		.endm
 #else
+
+@ loadsp는 adduart 호출. (mach-exynos/include/mach/debug-macro.S에 위치)
+@ 0x100000 * CONFIG_DEBUG_S3C_UART를 #S3C_PA_UART와 #S3C_VA_UART에 더해서 rb와 tmp에 넣음.
+@ PA UART는 0x13800000, VA UART는 0XF6000000 + 0x01000000(plat에 위치)
+@ 인자가 사실은 리턴값.
+                              
 		.macro	loadsp,	rb, tmp
 		addruart \rb, \tmp
 		.endm
@@ -119,12 +139,23 @@
 /*
  * sort out different calling conventions
  */
-		.align      @padding is 0
+                              @ arm에서는 .align 직후의 값이 생략될 수 있으며 (PC에선 안됨)
+                              @ 0이면 2가 입력된 것처럼 작동된다. (0이면, 2^2 = 4)
+                              @ 두번째 값은 채울 값, 세번째 값은 최대값이다.
+                              @ .align이 입력된 순간 0~3바이트의 패딩이 입력되어 정렬이 된다.
+		.align    
 		.arm				@ Always enter in ARM state
+                              @사실상 .arm은 .code 32로 처리되고 .thumb는 .code 16으로 처리 된다.
 
     /* iamroot : start를 function이라고 지정한다. 
        GNU assembler directive : http://sources.redhat.com/binutils/docs-2.12/as.info/Pseudo-Ops.html#Pseudo%20Ops
-       mov r0, r0 : http://www.iamroot.org/xe/index.php?mid=QnA&page=7&document_srl=23099 댓글 확인 */
+       mov r0, r0 : http://www.iamroot.org/xe/index.php?mid=QnA&page=7&document_srl=23099 댓글 확인
+     */
+
+                              @ ARM과 THUMB은 C언어의 전처리기로 만들어졌다.
+                              @ arch/arm/include/asm/unified.h에 위치. 링크를 하는 위치는 /Makefile에서
+                              @ 어셈의 플래그로 설정.
+                              
 start:
 		.type	start,#function               
 		.rept	7
@@ -180,6 +211,11 @@ not_angel:
     /* iamroot : TEXT_OFFSET의 값은 -> arch/arm/Makefile?
        ZRELADDR : 압축이 해제된 커널이 놓일 주소이다.
        r4에는 text의 위치가 입력된다. */
+
+  @ ZRELADDR도 arcm/arm/Makefile에서 설정되는데 실제 값은 mach-exynos4/Makefile.boot
+  @ 의 zreladdr-y의 값에 의해 결정되고 0x40000000이다.
+  @ #TEXT_OFFSET의 값도 실제로는 textofs-y에 의해 결정되지만 외부 파일에 의존하지 않고
+  @ Makefile에 의해서만 결정된다. 기본값으로 0x00008000이며 몇몇 지정된 칩의 경우 값 변경.
 
     @  r4 = kernel execution address
 #ifdef CONFIG_AUTO_ZRELADDR
@@ -408,7 +444,9 @@ params:		ldr	r0, =0x10000100		@ params_phys for RPC
  * This routine must preserve:
  *  r4, r7, r8
  */
-		.align	5       @why 5?
+		.align	5
+                              @ 2^5 = 32. 0~31바이트의 공백을 두어서 정렬을
+                              @ 시키는 것을 의미함.
 cache_on:	mov	r3, #8			@ cache_on function
 		b	call_cache_fn
 
@@ -635,6 +673,7 @@ __common_mmu_cache_on:
  *  r12 = corrupted
  */
 
+                              @f3은 8로 들어왔음.
 call_cache_fn:	adr	r12, proc_types
 
 /* iamroot : 같은 processor ID를 loop를 돌아 찾는다. new CPU ID라고 아래에 선언되어 있다.
@@ -642,7 +681,15 @@ call_cache_fn:	adr	r12, proc_types
 
 #ifdef CONFIG_CPU_CP15
 		mrc	p15, 0, r9, c0, c0	@ get processor ID
+                              @ 31~24 구현자(ARM:0x41)
+                              @ 23~20 CPU 메이저 리비전 (ig. 0x3)
+                              @ 19~16 아키텍쳐 (ig. 0xF)
+                              @ 15~4 파트 넘버 (ig. Cortex-A8 0xC08)
+                              @ 3~0 마이너 리비전 (ig. 0x2)
+                              @ 우리가 보는 PC210A칩(엑시노스) 0x43210211?
+                              @ User_Guide 4-2페이지의 비트가 다름. -_-
 #else
+                              @CP15가 없는 칩셋에서는 설정에 넣어줘야 한다.
 		ldr	r9, =CONFIG_PROCESSOR_ID
 #endif
 1:		ldr	r1, [r12, #0]		@ get value
@@ -674,7 +721,14 @@ proc_types:
 		.word	0x41560600		@ ARM6/610
 		.word	0xffffffe0
 
-		W(b)	__arm6_mmu_cache_off	@ works, but slow       @ W(b) : __로시작하는 게 정의 되어 있으면 branch한다.
+		W(b)	__arm6_mmu_cache_off	@ works, but slow
+                             @ W(b) : __ASSEMBLY__로시작하는 게 정의 되어 있으면
+                             @ ARM에서는 그냥 들어 있는 명령 그대로, THUMB에서는
+                             @ 명령.w로 수행한다.
+                             @ .w는 접근 사이즈를 바꾸는 것은 아님. Thumb2를 쓸 때
+                             @ 32비트 코드로 작성하라는 것.
+    @ see also: http://lists.infradead.org/pipermail/linux-arm-kernel/2009-September/000845.html
+
 		W(b)	__arm6_mmu_cache_off
 		mov	pc, lr
  THUMB(		nop				)
@@ -805,6 +859,7 @@ proc_types:
 		W(b)	__armv4_mmu_cache_off
 		W(b)	__armv6_mmu_cache_flush
 
+                             @ 여기로 오는 듯?
 		.word	0x000f0000		@ new CPU Id
 		.word	0x000f0000
 		W(b)	__armv7_mmu_cache_on
