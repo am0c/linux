@@ -83,7 +83,7 @@
 @ 0x100000 * CONFIG_DEBUG_S3C_UART를 #S3C_PA_UART와 #S3C_VA_UART에 더해서 rb와 tmp에 넣음.
 @ PA UART는 0x13800000, VA UART는 0XF6000000 + 0x01000000(plat에 위치)
 @ 인자가 사실은 리턴값.
-                              
+
 		.macro	loadsp,	rb, tmp
 		addruart \rb, \tmp
 		.endm
@@ -131,10 +131,10 @@
 		bl	memdump		/* dump 256 bytes at start of kernel */
 #endif
 		.endm
-    
+
 /* iamroot : .section은 새로운 section을 정의하는 것이다.
    #alloc은 allocatable을 의미하고 #execinstr은 executable을 의미한다.
- */ 
+ */
 		.section ".start", #alloc, #execinstr
 /*
  * sort out different calling conventions
@@ -143,11 +143,11 @@
                               @ 0이면 2가 입력된 것처럼 작동된다. (0이면, 2^2 = 4)
                               @ 두번째 값은 채울 값, 세번째 값은 최대값이다.
                               @ .align이 입력된 순간 0~3바이트의 패딩이 입력되어 정렬이 된다.
-		.align    
+		.align
 		.arm				@ Always enter in ARM state
                               @사실상 .arm은 .code 32로 처리되고 .thumb는 .code 16으로 처리 된다.
 
-    /* iamroot : start를 function이라고 지정한다. 
+    /* iamroot : start를 function이라고 지정한다.
        GNU assembler directive : http://sources.redhat.com/binutils/docs-2.12/as.info/Pseudo-Ops.html#Pseudo%20Ops
        mov r0, r0 : http://www.iamroot.org/xe/index.php?mid=QnA&page=7&document_srl=23099 댓글 확인
      */
@@ -155,9 +155,9 @@
                               @ ARM과 THUMB은 C언어의 전처리기로 만들어졌다.
                               @ arch/arm/include/asm/unified.h에 위치. 링크를 하는 위치는 /Makefile에서
                               @ 어셈의 플래그로 설정.
-                              
+
 start:
-		.type	start,#function               
+		.type	start,#function
 		.rept	7
 		mov	r0, r0
 		.endr
@@ -180,9 +180,9 @@ start:
 		 */
 		mrs	r2, cpsr		@ get current mode
 
-    /* iamroot : tst의 결과가 1이면 zflag가 0된다.) 
+    /* iamroot : tst의 결과가 1이면 zflag가 0된다.)
        Angel은 ARM 디버거와 통신하는 타겟에서 돌고 있는 디버깅용 모니터 프로그램이다. */
-    
+
 		tst	r2, #3			@ not user?       /* iamroot : not user mode */
 		bne	not_angel                     /* iamroot : if ( Z clear? ) goto not_angel. */
 		mov	r0, #0x17		@ angel_SWIreason_EnterSVC
@@ -214,8 +214,10 @@ not_angel:
 
   @ ZRELADDR도 arcm/arm/Makefile에서 설정되는데 실제 값은 mach-exynos4/Makefile.boot
   @ 의 zreladdr-y의 값에 의해 결정되고 0x40000000이다.
+
   @ #TEXT_OFFSET의 값도 실제로는 textofs-y에 의해 결정되지만 외부 파일에 의존하지 않고
-  @ Makefile에 의해서만 결정된다. 기본값으로 0x00008000이며 몇몇 지정된 칩의 경우 값 변경.
+  @ Makefile에 의해서만 결정된다. 아키텍쳐에 따라 다른 주소를 가지도록 상위 Makefile에 하드코딩되어있다.
+  @ 기본값으로 0x00008000이며 몇몇 지정된 칩의 경우 값 변경.
 
     @  r4 = kernel execution address
 #ifdef CONFIG_AUTO_ZRELADDR
@@ -409,6 +411,7 @@ not_relocated:	mov	r0, #0
 
 		.align	2
 		.type	LC0, #object
+@ Literal Constant 인것같다.
 LC0:		.word	LC0			@ r1
 		.word	__bss_start		@ r2
 		.word	_end			@ r3
@@ -512,44 +515,109 @@ __armv3_mpu_cache_on:
 		mcr	p15, 0, r0, c7, c0, 0	@ invalidate whole cache v3
 		mov	pc, lr
 
-__setup_mmu:	sub	r3, r4, #16384		@ Page directory size
+        @ r4 = zImage
+        @ r3 = page directory address
+
+__setup_mmu:	sub	r3, r4, #16384		@ Page directory size (2^14)
 		bic	r3, r3, #0xff		@ Align the pointer
 		bic	r3, r3, #0x3f00
 /*
  * Initialise the page tables, turning on the cacheable and bufferable
  * bits for the RAM area only.
  */
+
+        @ r0 = r3 = page directory address
+        @ r9 = start of RAM
+
 		mov	r0, r3
 		mov	r9, r0, lsr #18
 		mov	r9, r9, lsl #18		@ start of RAM
+
+        @ r10 = reasonable(?) end of RAM
+
 		add	r10, r9, #0x10000000	@ a reasonable RAM size
+
+        @ r1 = 0xc12
+
 		mov	r1, #0x12
 		orr	r1, r1, #3 << 10
-		add	r2, r3, #16384
+
+        @ r2 = zImage (need patch)
+
+		add	r2, r3, #16384          @ 2^14
+
+        @
+
 1:		cmp	r1, r9			@ if virt > start of RAM
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
 		orrhs	r1, r1, #0x08		@ set cacheable
 #else
 		orrhs	r1, r1, #0x0c		@ set cacheable, bufferable
 #endif
+
+        @ r10 = reasonable(?) end of RAM
+        @ r2 = zImage (need patch)
+        @ r1 = 0xc12
+        @ r0 = r3 = page directory address
+
 		cmp	r1, r10			@ if virt > end of RAM
 		bichs	r1, r1, #0x0c		@ clear cacheable, bufferable
 		str	r1, [r0], #4		@ 1:1 mapping
 		add	r1, r1, #1048576
 		teq	r0, r2
 		bne	1b
+
+ @ 램에만 cachable / bufferable 플래그를 설정한다.
+        
+/*
+ *   
+ *  +--------------+ <- 0x4000.0000
+ *  |              |
+ *  |              | 
+ *  |              |
+ *  +--------------+ <- 0x4000.4000
+ *  |              |
+ *  | page direct  | 
+ *  |              |
+ *  +--------------+ <- 0x4000.8000
+ *  | zImage       |
+ *  +--------------+
+ *  |              |
+ *  |              |
+ *  |              |
+ *  |              |
+ *  |              |
+ *  |              |
+ *  |              |
+ *  +--------------+
+ *
+16kb / 4byte
+
+1024 * 16 byte / 4byte
+
+1024 * 4 byte
+
+4096 개
+ *
+ * machine cortex A9 <--> exynos4210 
+ */
+        
 /*
  * If ever we are running from Flash, then we surely want the cache
  * to be enabled also for our execution instance...  We map 2MB of it
  * so there is no map overlap problem for up to 1 MB compressed kernel.
  * If the execution is in RAM then we would only be duplicating the above.
  */
-		mov	r1, #0x1e
-		orr	r1, r1, #3 << 10
-		mov	r2, pc
-		mov	r2, r2, lsr #20
-		orr	r1, r1, r2, lsl #20
-		add	r0, r3, r2, lsl #2
+
+        @ r3 = page directory address
+        @ pc에서 시작하는 이유는 2MB 커널에서 사용하기 위한 페이지 테이블이기 때문
+        
+		mov	r1, #0x1e             @ enable cacheable + bufferable
+		orr	r1, r1, #3 << 10      @ r1 = 0xc1e
+		mov	r2, pc                @ 
+		mov	r2, r2, lsr #20       @ 
+		orr	r1, r1, r2, lsl #20   @ r1 |= pc  clr  20bit
+		add	r0, r3, r2, lsl #2    @ 
 		str	r1, [r0], #4
 		add	r1, r1, #1048576
 		str	r1, [r0]
@@ -587,11 +655,11 @@ __armv7_mmu_cache_on:
 
     /*iamroot mrc	p15, 0, r11, c0, c1, 4
       c0:major(CRn), c1:minor(CRm), op1=0, op2=4
-      ddi0388g_cortex_a9_r3p0_trm.pdf에서 일단 c0으로 4.2.1장 c0 register를 찾으며 
+      ddi0388g_cortex_a9_r3p0_trm.pdf에서 일단 c0으로 4.2.1장 c0 register를 찾으며
       나머지 op1, c1, op2를 이용하여 Memory Model Feature Register0이라는 것을 알 수 있다. */
 
 		mrc	p15, 0, r11, c0, c1, 4	@ read ID_MMFR0   @iamroot:Memory Model Feature Register0
-		tst	r11, #0xf		@ VMSA                      @iamroot:Virtual Memory System Archiecture
+		tst	r11, #0xf		@ VMSA            @iamroot:Virtual Memory System Archiecture
 		blne	__setup_mmu
 		mov	r0, #0
 		mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
@@ -764,7 +832,7 @@ proc_types:
 		W(b)	__armv3_mpu_cache_on
 		W(b)	__armv3_mpu_cache_off
 		W(b)	__armv3_mpu_cache_flush
-		
+
 		.word	0x41009400		@ ARM94x
 		.word	0xff00ff00
 		W(b)	__armv4_mpu_cache_on
@@ -992,7 +1060,7 @@ __armv4_mpu_cache_flush:
 		mcrne	p15, 0, ip, c7, c5, 0	@ invalidate I cache
 		mcr	p15, 0, ip, c7, c10, 4	@ drain WB
 		mov	pc, lr
-		
+
 __fa526_cache_flush:
 		mov	r1, #0
 		mcr	p15, 0, r1, c7, c14, 0	@ clean and invalidate D cache
