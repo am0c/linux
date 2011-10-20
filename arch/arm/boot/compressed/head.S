@@ -221,8 +221,8 @@ not_angel:
 #ifdef CONFIG_AUTO_ZRELADDR
 		@ determine final kernel image address
 		mov	r4, pc
-		and	r4, r4, #0xf8000000
-		add	r4, r4, #TEXT_OFFSET
+		and	r4, r4, #0xf8000000  @앞에 5비트를 가지고 온다.
+		add	r4, r4, #TEXT_OFFSET 
 #else
 		ldr	r4, =zreladdr
 #endif
@@ -511,7 +511,8 @@ __armv3_mpu_cache_on:
 		/* ?? invalidate for the second time? */
 		mcr	p15, 0, r0, c7, c0, 0	@ invalidate whole cache v3
 		mov	pc, lr
-
+		
+		@r4=커널 이미지 어드레스(0x40008000) 					
 __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		bic	r3, r3, #0xff		@ Align the pointer
 		bic	r3, r3, #0x3f00
@@ -519,13 +520,13 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
  * Initialise the page tables, turning on the cacheable and bufferable
  * bits for the RAM area only.
  */
-		mov	r0, r3
-		mov	r9, r0, lsr #18
-		mov	r9, r9, lsl #18		@ start of RAM
-		add	r10, r9, #0x10000000	@ a reasonable RAM size
+		mov	r0, r3  		@r0=0x40004000
+		mov	r9, r0, lsr #18	@하위에 18비트를 클리어 
+		mov	r9, r9, lsl #18		@ start of RAM(0x40000000)
+		add	r10, r9, #0x10000000	@ a reasonable RAM size(256M)
 		mov	r1, #0x12
-		orr	r1, r1, #3 << 10
-		add	r2, r3, #16384
+		orr	r1, r1, #3 << 10 	@0xc12 
+		add	r2, r3, #16384 		@다시 커널 이미지 어드레스
 1:		cmp	r1, r9			@ if virt > start of RAM
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
 		orrhs	r1, r1, #0x08		@ set cacheable
@@ -535,7 +536,7 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		cmp	r1, r10			@ if virt > end of RAM
 		bichs	r1, r1, #0x0c		@ clear cacheable, bufferable
 		str	r1, [r0], #4		@ 1:1 mapping
-		add	r1, r1, #1048576
+		add	r1, r1, #1048576	@(1M) mmu page size 를 1M씩 활당
 		teq	r0, r2
 		bne	1b
 /*
@@ -545,7 +546,7 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
  * If the execution is in RAM then we would only be duplicating the above.
  */
 		mov	r1, #0x1e
-		orr	r1, r1, #3 << 10
+		orr	r1, r1, #3 << 10  @r1=0xc1e
 		mov	r2, pc
 		mov	r2, r2, lsr #20
 		orr	r1, r1, r2, lsl #20
@@ -686,7 +687,6 @@ call_cache_fn:	adr	r12, proc_types
                               @ 19~16 아키텍쳐 (ig. 0xF)
                               @ 15~4 파트 넘버 (ig. Cortex-A8 0xC08)
                               @ 3~0 마이너 리비전 (ig. 0x2)
-                              @ 우리가 보는 PC210A칩(엑시노스) 0x43210211?
                               @ User_Guide 4-2페이지의 비트가 다름. -_-
 #else
                               @CP15가 없는 칩셋에서는 설정에 넣어줘야 한다.
