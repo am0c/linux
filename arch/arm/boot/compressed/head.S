@@ -183,14 +183,16 @@ start:
     /* iamroot : tst의 결과가 1이면 zflag가 0된다.)
        Angel은 ARM 디버거와 통신하는 타겟에서 돌고 있는 디버깅용 모니터 프로그램이다. */
 
-		tst	r2, #3			@ not user?       /* iamroot : not user mode */
-		bne	not_angel                     /* iamroot : if ( Z clear? ) goto not_angel. */
+		tst	r2, #3			@ not user?
+                                                @ 하위 2비트가 모두 0이면 user 모드이다.
+		bne	not_angel               @ Z clear == not equal
 		mov	r0, #0x17		@ angel_SWIreason_EnterSVC
  ARM(		swi	0x123456	)	@ angel_SWI_ARM
  THUMB(		svc	0xab		)	@ angel_SWI_THUMB
 not_angel:
 		mrs	r2, cpsr		@ turn off interrupts to
 		orr	r2, r2, #0xc0		@ prevent angel from running
+                                                @ IRC 및 FIQ 인터럽트를 끈다.
 		msr	cpsr_c, r2      /* iamroot : _c의 의미는 NZCV condition flags 를 변경하지 않겠다. */
 #else
 		teqp	pc, #0x0c000003		@ turn off interrupts     @teqp = xor
@@ -222,7 +224,7 @@ not_angel:
     @  r4 = kernel execution address
 #ifdef CONFIG_AUTO_ZRELADDR
 		@ determine final kernel image address
-		mov	r4, pc
+		mov	r4, pc                  @ 실행시점에 pc = 현위치 + 8byte
 		and	r4, r4, #0xf8000000
 		add	r4, r4, #TEXT_OFFSET
 #else
