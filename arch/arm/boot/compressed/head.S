@@ -225,8 +225,8 @@ not_angel:
 #ifdef CONFIG_AUTO_ZRELADDR
 		@ determine final kernel image address
 		mov	r4, pc                  @ 실행시점에 pc = 현위치 + 8byte
-		and	r4, r4, #0xf8000000
-		add	r4, r4, #TEXT_OFFSET
+		and	r4, r4, #0xf8000000  @앞에 5비트를 가지고 온다.
+                add     r4, r4, #TEXT_OFFSET
 #else
 		ldr	r4, =zreladdr
 #endif
@@ -517,7 +517,7 @@ __armv3_mpu_cache_on:
 		mcr	p15, 0, r0, c7, c0, 0	@ invalidate whole cache v3
 		mov	pc, lr
 
-        @ r4 = zImage
+        @ r4 = zImage (0x40008000)
         @ r3 = page directory address
 
 __setup_mmu:	sub	r3, r4, #16384		@ Page directory size (2^14)
@@ -531,18 +531,18 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size (2^14)
         @ r0 = r3 = page directory address
         @ r9 = start of RAM
 
-		mov	r0, r3
-		mov	r9, r0, lsr #18
-		mov	r9, r9, lsl #18		@ start of RAM
+		mov	r0, r3                  @ r0=0x40004000
+		mov	r9, r0, lsr #18         @ 하위에 18비트를 클리어 
+		mov	r9, r9, lsl #18		@ start of RAM (0x40000000)
 
         @ r10 = reasonable(?) end of RAM
 
-		add	r10, r9, #0x10000000	@ a reasonable RAM size
+		add	r10, r9, #0x10000000	@ a reasonable RAM size (256M)
 
         @ r1 = 0xc12
 
 		mov	r1, #0x12
-		orr	r1, r1, #3 << 10
+		orr	r1, r1, #3 << 10        @ 다시 커널 이미지 어드레스
 
         @ r2 = zImage (need patch)
 
@@ -565,7 +565,7 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size (2^14)
 		cmp	r1, r10			@ if virt > end of RAM
 		bichs	r1, r1, #0x0c		@ clear cacheable, bufferable
 		str	r1, [r0], #4		@ 1:1 mapping
-		add	r1, r1, #1048576
+		add	r1, r1, #1048576	@(1M) mmu page size 를 1M씩 활당
 		teq	r0, r2
 		bne	1b
 
