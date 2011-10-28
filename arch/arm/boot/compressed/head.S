@@ -144,8 +144,8 @@
                               @ 두번째 값은 채울 값, 세번째 값은 최대값이다.
                               @ .align이 입력된 순간 0~3바이트의 패딩이 입력되어 정렬이 된다.
 		.align
-		.arm				@ Always enter in ARM state
-                              @사실상 .arm은 .code 32로 처리되고 .thumb는 .code 16으로 처리 된다.
+		.arm          @ Always enter in ARM state
+                              @ 사실상 .arm은 .code 32로 처리되고 .thumb는 .code 16으로 처리 된다.
 
     /* iamroot : start를 function이라고 지정한다.
        GNU assembler directive : http://sources.redhat.com/binutils/docs-2.12/as.info/Pseudo-Ops.html#Pseudo%20Ops
@@ -158,13 +158,15 @@
 
 start:
 		.type	start,#function
-		.rept	7
+		.rept	7                       @ THUMB2의 경우: 32 - 14 = 18byte
 		mov	r0, r0
 		.endr
-   ARM(		mov	r0, r0		)
-   ARM(		b	1f		)
- THUMB(		adr	r12, BSYM(1f)	)           /* iamroot : BSYM = 맨마지막 bit를 1로 바꿔 준다.(arch/arm/include/asm/unified.h) */
- THUMB(		bx	r12		)
+   ARM(		mov	r0, r0		)       @ ARM 상태에서는 nop 8번 수행.
+                                                @ Cortex-A8의 13개의 pipeline 단계가 있다. 그렇다면 어째서 8번?
+                                                @ -> 레이아웃을 맞추기 위해 공백을 더한 것.
+   ARM(		b	1f		)       @ -> 여기까지 보면 ARM의 경우 8*4바이트, 브랜치, 매직값, 시작주소, 끝주소
+ THUMB(		adr	r12, BSYM(1f)	)       @ CONFIG_THUMB2_KERNEL인 경우에는 1이 더해진다.
+ THUMB(		bx	r12		)       @ 
 		.word	0x016f2818		@ Magic numbers to help the loader
 		.word	start			@ absolute load/run zImage address
 		.word	_edata			@ zImage end address
@@ -221,11 +223,11 @@ not_angel:
   @ Makefile에 의해서만 결정된다. 아키텍쳐에 따라 다른 주소를 가지도록 상위 Makefile에 하드코딩되어있다.
   @ 기본값으로 0x00008000이며 몇몇 지정된 칩의 경우 값 변경.
 
-    @  r4 = kernel execution address
+  @  r4 = kernel execution address
 #ifdef CONFIG_AUTO_ZRELADDR
 		@ determine final kernel image address
-		mov	r4, pc                  @ 실행시점에 pc = 현위치 + 8byte
-		and	r4, r4, #0xf8000000  @앞에 5비트를 가지고 온다.
+		mov	r4, pc                  @ 실행시점에 pc = 현위치 + 8byte (또는 파이프라인 크기에 영향?)
+		and	r4, r4, #0xf8000000     @ 앞에 5비트를 가지고 온다.
                 add     r4, r4, #TEXT_OFFSET
 #else
 		ldr	r4, =zreladdr
@@ -744,7 +746,8 @@ __common_mmu_cache_on:
  */
 
                               @f3은 8로 들어왔음.
-call_cache_fn:	adr	r12, proc_types
+call_cache_fn:	adr	r12, proc_types         @ adr은 arm instruction set에 포함되어 있지 않은
+                                                @ pseudo-instructinon 이다.
 
 /* iamroot : 같은 processor ID를 loop를 돌아 찾는다. new CPU ID라고 아래에 선언되어 있다.
    __armv7_mmu_cache_on, __armv7_mmu_cache_off, __armv7_mmu_cache_flush */
@@ -762,13 +765,14 @@ call_cache_fn:	adr	r12, proc_types
                               @CP15가 없는 칩셋에서는 설정에 넣어줘야 한다.
 		ldr	r9, =CONFIG_PROCESSOR_ID
 #endif
+        /* am0c */
 1:		ldr	r1, [r12, #0]		@ get value
 		ldr	r2, [r12, #4]		@ get mask
 		eor	r1, r1, r9		@ (real ^ match)
 		tst	r1, r2			@       & mask
  ARM(		addeq	pc, r12, r3		) @ call cache function
  THUMB(		addeq	r12, r3			)
- THUMB(		moveq	pc, r12			) @ cal cache function
+ THUMB(		moveq	pc, r12			) @ call cache function
 		add	r12, r12, #PROC_ENTRY_SIZE                         @20
 		b	1b
 /*
