@@ -158,19 +158,21 @@
 
 start:
 		.type	start,#function
-		.rept	7                       @ THUMB2의 경우: 32 - 14 = 18byte
+		.rept	7                       @ Thumb-2의 경우도 ARM의 경우와 동일.
 		mov	r0, r0
 		.endr
    ARM(		mov	r0, r0		)       @ ARM 상태에서는 nop 8번 수행.
                                                 @ Cortex-A8의 13개의 pipeline 단계가 있다. 그렇다면 어째서 8번?
                                                 @ -> 레이아웃을 맞추기 위해 공백을 더한 것.
    ARM(		b	1f		)       @ -> 여기까지 보면 ARM의 경우 8*4바이트, 브랜치, 매직값, 시작주소, 끝주소
- THUMB(		adr	r12, BSYM(1f)	)       @ CONFIG_THUMB2_KERNEL인 경우에는 1이 더해진다.
+ THUMB(		adr	r12, BSYM(1f)	)       @ CONFIG_THUMB2_KERNEL인 경우에는 1이 더해진다. 여기서 1은 일종의 플래그가 된다.
  THUMB(		bx	r12		)       @ 
 		.word	0x016f2818		@ Magic numbers to help the loader
 		.word	start			@ absolute load/run zImage address
 		.word	_edata			@ zImage end address
- THUMB(		.thumb			)
+ THUMB(		.thumb			)       @ CONFIG_THUMB2_KERNEL의 경우:
+                                                @ 이 라인 위의 코드들은 ARM 코드(.arm)로서 레이아웃을 지켰으며,
+                                                @ 이하부터는 Thumb-2 모드(.thumb)로 전환(bx)되어 분기되었다.
 1:		mov	r7, r1			@ save architecture ID
 		mov	r8, r2			@ save atags pointer
 
